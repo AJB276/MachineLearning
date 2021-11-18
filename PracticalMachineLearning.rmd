@@ -1,0 +1,143 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Adam Blanch"
+date: "31st October 2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache=TRUE)
+library(lattice)
+library(ggplot2)
+library(caret)
+library(kernlab)
+library(rattle)
+library(corrplot)
+library(gbm)
+library(rpart.plot)
+library(randomForest)
+library(plyr)
+set.seed(1234)
+```
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har] (see the section on the Weight Lifting Exercise Dataset).
+
+## Data Source
+
+The training data for this project are available here:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv]
+
+The test data are available here:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv]
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har]. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+```{r data}
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainCSV <- "pml-training.csv"
+testCSV <- "pml-testing.csv"
+
+if (!file.exists(trainCSV)) {
+  download.file(trainURL, trainCSV, mode = "wb")
+}
+
+if (!file.exists(testCSV)) {
+  download.file(testURL, testCSV, mode = "wb")
+}
+
+train <- read.csv(trainCSV,na.strings = c("NA",""))
+test <- read.csv(testCSV,na.strings = c("NA",""))
+
+train$classe <- factor(train$classe)
+```
+
+## Cleaning Data
+
+Inspecting the data we find the first seven columns of the data are descriptive identifiers and  will not be useful in prediction.
+
+```{r data_1, echo=TRUE}
+names(train)[1:7]
+newtrain <- train[,8:length(train)]
+```
+
+Several columns are mostly NAs or blank (cast to NA when read in), after inspecting there function (see names) they will be removed from the data to build the prediction models. They are variables such maximum, minimum, variation, or deviation values for an observation period and as such can calculated from the other variables.
+
+```{r data_2, echo=TRUE}
+nas <- vector("integer",length(newtrain))
+
+for(i in 1:length(newtrain))
+{
+  nas[i] <- sum(is.na(newtrain[,i]))
+}
+
+names(newtrain[nas>0])
+newtrain <- newtrain[,nas==0]
+```
+
+## Test and Validation sets
+
+The training set is broken into training and testing sets to validate the pratical machine models below. 
+
+``` {r train_validatios_sets, echo= TRUE}
+inTrain <- createDataPartition(newtrain$classe, p=0.6, list=FALSE)
+training <- newtrain[inTrain,]
+testing <- newtrain[-inTrain,]
+```
+
+## Random Decision Tree Model
+
+``` {r rpart, echo=TRUE}
+control <- trainControl(method="cv", number=3, verboseIter=F)
+
+## Decision Tree model
+mod_trees <- train(classe~., data=training, method="rpart", trControl = control, tuneLength = 5)
+fancyRpartPlot(mod_trees$finalModel)
+
+pred_trees <- predict(mod_trees, testing)
+cm_trees <- confusionMatrix(pred_trees, testing$classe)
+cm_trees
+```
+
+You can see from the confusion matrix the accuracy of the random decision tree model is `r cm_trees$overall["Accuracy"]`.
+
+## Random Forest model
+``` {r rf,echo=TRUE}
+mod_rf <- train(classe ~ ., data = training, method = "rf", ntree = 100)
+validate_rf <- predict(mod_rf, testing)
+cm_rf <- confusionMatrix(validate_rf, testing$classe)
+cm_rf
+```
+
+You can see from the confusion matrix the accuracy of the random forest model is `r cm_rf$overall["Accuracy"]`.  This model is much improved and would be suitable for making accurate predictions.
+
+## Generalized Boosted Regression Model
+``` {r gbm,echo=TRUE}
+mod_gbm <- train(classe ~ ., data = training, method = "gbm", nTrain = nrow(training),verbose = FALSE)
+validate_gbm <- predict(mod_gbm, testing)
+cm_gbm <- confusionMatrix(validate_gbm, testing$classe)
+cm_gbm
+```
+
+You can see from the confusion matrix the accuracy of the generalised boosted regression model is `r cm_gbm$overall["Accuracy"]`.  This model would also be suitable for making accurate predictions.  The validation set is slightly less accurate than the random forest model.
+
+## Making Prections
+``` {r prediction,echo = TRUE}
+pred_rf <- predict(mod_rf, test)
+pred_rf
+pred_cbm <- predict(mod_gbm, test)
+pred_cbm
+```
+Predictions of the test set have been made using both the random forest model and generalized boosted regression model.  For this small set the predictions are identical as shown above.
+
+## Conclusion
+
+For this data set the random forest model gives is between `r round(cm_rf$overall["AccuracyLower"]*100,2)`% and `r round(cm_rf$overall["AccuracyUpper"]*100,2)`% at predicting the type of exercise undertaken.  So it is both the best of the three machine learning models for this data and there is high confidence of making an accurate prediction.  The training data was validated by bootstrapping and was resampled 25 times by the train function.
+
